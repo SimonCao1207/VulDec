@@ -1,0 +1,2 @@
+pydriller==2.6
+requests
