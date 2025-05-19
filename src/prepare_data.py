@@ -1,7 +1,11 @@
 import json
+import pickle
 import random
 
+import torch
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
+from transformers import AutoModel, AutoTokenizer
 
 # import torch
 # from transformers import AutoModel, AutoTokenizer
@@ -46,40 +50,58 @@ def load_data(mode="sql"):
     return data
 
 
+def get_embedding(code):
+    tokenizer = AutoTokenizer.from_pretrained("microsoft/codebert-base")
+    model = AutoModel.from_pretrained("microsoft/codebert-base")
+    code_tokens = tokenizer.tokenize(code)
+    tokens = [tokenizer.cls_token] + code_tokens + [tokenizer.eos_token]
+    tokens_ids = tokenizer.convert_tokens_to_ids(tokens)
+    context_embeddings = model(torch.tensor(tokens_ids)[None, :])[0]
+    return context_embeddings
+
+
+class CodeBlockDataset(Dataset):
+    def __init__(self, dataset, name):
+        self.X, self.Y = [], []
+        print(f"Creating {name} dataset... ({mode})")
+        for code, label in dataset:
+            code_embedding = get_embedding(code)
+            self.X.append(code_embedding)
+            self.Y.append(label)
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        x = self.X[idx]
+        y = torch.tensor(self.Y[idx])
+        return x, y
+
+
+def snapshot_data(data):
+    """
+    snapshot a random commit
+    """
+    import random
+
+    links = list(data.keys())
+    if links:
+        link = random.choice(links)
+        commit_hashes = list(data[link].keys())
+        if commit_hashes:
+            commit_hash = random.choice(commit_hashes)
+            print(f"files : {data[link][commit_hash]['files']}")
+            print(data[link][commit_hash]["diff"])
+
+
 if __name__ == "__main__":
-    # tokenizer = AutoTokenizer.from_pretrained("microsoft/codebert-base")
-    # model = AutoModel.from_pretrained("microsoft/codebert-base")
-    # nl_tokens = tokenizer.tokenize("return maximum value")
-    # code_tokens = tokenizer.tokenize("def max(a,b): if a>b: return a else return b")
-    # tokens = (
-    #     [tokenizer.cls_token]
-    #     + nl_tokens
-    #     + [tokenizer.sep_token]
-    #     + code_tokens
-    #     + [tokenizer.eos_token]
-    # )
-    # tokens_ids = tokenizer.convert_tokens_to_ids(tokens)
-    # context_embeddings = model(torch.tensor(tokens_ids)[None, :])[0]
-    # print(context_embeddings)
-
     data = load_data()
-
-    # Select a random link and a random commit_hash
-    # import random
-
-    # links = list(data.keys())
-    # if links:
-    #     link = random.choice(links)
-    #     commit_hashes = list(data[link].keys())
-    #     if commit_hashes:
-    #         commit_hash = random.choice(commit_hashes)
-    #         print(f"files : {data[link][commit_hash]['files']}")
-    #         print(data[link][commit_hash]["diff"])  # print first 10 lines as a snapshot
-
+    # snapshot_data(data)
     # exit()
+
     progress = 0
     count = 0
-    step = 5  # step lenght n in the description
+    step = 5  # step length n in the description
     fulllength = 200  # context length m in the description
     allblocks = []
 
@@ -125,9 +147,23 @@ if __name__ == "__main__":
     print(f"Train: {len(train_set)}, Val: {len(val_set)}, Test: {len(test_set)}")
 
     # Save the splits for later loading
-    with open(f"data/{mode}_train_set.json", "w") as f:
-        json.dump(train_set, f)
-    with open(f"data/{mode}_val_set.json", "w") as f:
-        json.dump(val_set, f)
-    with open(f"data/{mode}_test_set.json", "w") as f:
-        json.dump(test_set, f)
+    with open(f"data/{mode}_train_set.pkl", "wb") as f:
+        pickle.dump(train_set, f)
+    with open(f"data/{mode}_val_set.pkl", "wb") as f:
+        pickle.dump(val_set, f)
+    with open(f"data/{mode}_test_set.pkl", "wb") as f:
+        pickle.dump(test_set, f)
+
+    # Create torch Dataset and DataLoader
+    train_dataset = CodeBlockDataset(train_set, "training")
+    val_dataset = CodeBlockDataset(val_set, "validation")
+    test_dataset = CodeBlockDataset(test_set, "test")
+
+    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False)
+
+    # Example usage:
+    # for batch_x, batch_y in train_loader:
+    #     # batch_x: [batch_size, ...], batch_y: [batch_size]
+    #     pass
