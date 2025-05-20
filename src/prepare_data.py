@@ -1,4 +1,5 @@
 import json
+import os
 import pickle
 import random
 
@@ -94,19 +95,14 @@ def snapshot_data(data):
             print(data[link][commit_hash]["diff"])
 
 
-if __name__ == "__main__":
-    data = load_data()
-    # snapshot_data(data)
-    # exit()
-
-    progress = 0
+def extract_blocks_from_data(data, step=5, fulllength=200):
+    """
+    Extract code blocks containing bad parts from the dataset.
+    Returns a list of blocks.
+    """
     count = 0
-    step = 5  # step length n in the description
-    fulllength = 200  # context length m in the description
     allblocks = []
-
     for link in tqdm(data):
-        progress = progress + 1
         for commit_hash in data[link]:
             if "files" in data[link][commit_hash]:
                 for f in data[link][commit_hash]["files"]:
@@ -131,28 +127,48 @@ if __name__ == "__main__":
                                 allblocks.append(b)
             else:
                 print("no files in detected")
+    return allblocks
 
-    # Shuffle and split allblocks into train, val, test sets
-    random.shuffle(allblocks)
-    n = len(allblocks)
-    n_train = int(0.7 * n)
-    n_val = int(0.15 * n)
-    n_test = n - n_train - n_val
 
-    train_set = allblocks[:n_train]
-    val_set = allblocks[n_train : n_train + n_val]
-    test_set = allblocks[n_train + n_val :]
+if __name__ == "__main__":
+    data = load_data()
+    # snapshot_data(data)
+    # exit()
+
+    step = 5  # step length n in the description
+    fulllength = 200  # context length m in the description
+    if os.path.exists(f"data/{mode}_train_set.pkl"):
+        print("Loading existing data...")
+        with open(f"data/{mode}_train_set.pkl", "rb") as f:
+            train_set = pickle.load(f)
+        with open(f"data/{mode}_val_set.pkl", "rb") as f:
+            val_set = pickle.load(f)
+        with open(f"data/{mode}_test_set.pkl", "rb") as f:
+            test_set = pickle.load(f)
+    else:
+        allblocks = extract_blocks_from_data(data, step=step, fulllength=fulllength)
+
+        # Shuffle and split allblocks into train, val, test sets
+        random.shuffle(allblocks)
+        n = len(allblocks)
+        n_train = int(0.7 * n)
+        n_val = int(0.15 * n)
+        n_test = n - n_train - n_val
+
+        train_set = allblocks[:n_train]
+        val_set = allblocks[n_train : n_train + n_val]
+        test_set = allblocks[n_train + n_val :]
+
+        # Save the splits for later loading
+        with open(f"data/{mode}_train_set.pkl", "wb") as f:
+            pickle.dump(train_set, f)
+        with open(f"data/{mode}_val_set.pkl", "wb") as f:
+            pickle.dump(val_set, f)
+        with open(f"data/{mode}_test_set.pkl", "wb") as f:
+            pickle.dump(test_set, f)
 
     print(f"Total samples: {n}")
     print(f"Train: {len(train_set)}, Val: {len(val_set)}, Test: {len(test_set)}")
-
-    # Save the splits for later loading
-    with open(f"data/{mode}_train_set.pkl", "wb") as f:
-        pickle.dump(train_set, f)
-    with open(f"data/{mode}_val_set.pkl", "wb") as f:
-        pickle.dump(val_set, f)
-    with open(f"data/{mode}_test_set.pkl", "wb") as f:
-        pickle.dump(test_set, f)
 
     # Create torch Dataset and DataLoader
     train_dataset = CodeBlockDataset(train_set, "training")
@@ -164,6 +180,8 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False)
 
     # Example usage:
-    # for batch_x, batch_y in train_loader:
-    #     # batch_x: [batch_size, ...], batch_y: [batch_size]
-    #     pass
+    for batch_x, batch_y in train_loader:
+        # batch_x: [batch_size, ...], batch_y: [batch_size]
+        print(batch_x[0])
+        print("label:", batch_y[0])
+        break
