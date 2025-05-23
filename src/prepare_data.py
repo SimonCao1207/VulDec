@@ -8,8 +8,6 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from transformers import AutoModel, AutoTokenizer
 
-# import torch
-# from transformers import AutoModel, AutoTokenizer
 from myutils import findposition, findpositions, getblocks
 
 mode = "sql"
@@ -51,32 +49,30 @@ def load_data(mode="sql"):
     return data
 
 
-def get_embedding(code):
-    tokenizer = AutoTokenizer.from_pretrained("microsoft/codebert-base")
-    model = AutoModel.from_pretrained("microsoft/codebert-base")
-    code_tokens = tokenizer.tokenize(code)
-    tokens = [tokenizer.cls_token] + code_tokens + [tokenizer.eos_token]
-    tokens_ids = tokenizer.convert_tokens_to_ids(tokens)
-    context_embeddings = model(torch.tensor(tokens_ids)[None, :])[0]
+def get_embedding(model, tokenizer, code):
+    input_ids = tokenizer(
+        code, padding="max_length", truncation=True, max_length=512, return_tensors="pt"
+    )["input_ids"]
+    with torch.no_grad():
+        context_embeddings = model(input_ids)[0].squeeze(0)
+        # print(context_embeddings.shape)
     return context_embeddings
 
 
 class CodeBlockDataset(Dataset):
-    def __init__(self, dataset, name):
-        self.X, self.Y = [], []
-        print(f"Creating {name} dataset... ({mode})")
-        for code, label in dataset:
-            code_embedding = get_embedding(code)
-            self.X.append(code_embedding)
-            self.Y.append(label)
+    def __init__(self, model, tokenizer, dataset):
+        self.samples = dataset
+        self.model = model
+        self.tokenizer = tokenizer
+        os.makedirs("data/embeddings", exist_ok=True)
 
     def __len__(self):
-        return len(self.X)
+        return len(self.samples)
 
     def __getitem__(self, idx):
-        x = self.X[idx]
-        y = torch.tensor(self.Y[idx])
-        return x, y
+        code, label = self.samples[idx]
+        code_embedding = get_embedding(model, tokenizer, code)
+        return code_embedding, label
 
 
 def snapshot_data(data):
@@ -130,6 +126,23 @@ def extract_blocks_from_data(data, step=5, fulllength=200):
     return allblocks
 
 
+def get_data():
+    print("Loading data...")
+    train_set = pickle.load(open(f"data/{mode}_train_set.pkl", "rb"))
+    val_set = pickle.load(open(f"data/{mode}_val_set.pkl", "rb"))
+    test_set = pickle.load(open(f"data/{mode}_test_set.pkl", "rb"))
+
+    # Create torch Dataset and DataLoader
+    train_dataset = CodeBlockDataset(model, tokenizer, train_set)
+    val_dataset = CodeBlockDataset(model, tokenizer, val_set)
+    test_dataset = CodeBlockDataset(model, tokenizer, test_set)
+
+    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=4)
+    val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False, num_workers=4)
+    test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False, num_workers=4)
+    return train_loader, val_loader, test_loader
+
+
 if __name__ == "__main__":
     data = load_data()
     # snapshot_data(data)
@@ -167,17 +180,20 @@ if __name__ == "__main__":
         with open(f"data/{mode}_test_set.pkl", "wb") as f:
             pickle.dump(test_set, f)
 
-    print(f"Total samples: {n}")
+    print(f"Total samples: {len(train_set) + len(val_set) + len(test_set)}")
     print(f"Train: {len(train_set)}, Val: {len(val_set)}, Test: {len(test_set)}")
 
-    # Create torch Dataset and DataLoader
-    train_dataset = CodeBlockDataset(train_set, "training")
-    val_dataset = CodeBlockDataset(val_set, "validation")
-    test_dataset = CodeBlockDataset(test_set, "test")
+    tokenizer = AutoTokenizer.from_pretrained("microsoft/codebert-base")
+    model = AutoModel.from_pretrained("microsoft/codebert-base")
 
-    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False)
+    # Create torch Dataset and DataLoader
+    train_dataset = CodeBlockDataset(model, tokenizer, train_set)
+    val_dataset = CodeBlockDataset(model, tokenizer, val_set)
+    test_dataset = CodeBlockDataset(model, tokenizer, test_set)
+
+    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=4)
+    val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False, num_workers=4)
+    test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False, num_workers=4)
 
     # Example usage:
     for batch_x, batch_y in train_loader:
