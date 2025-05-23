@@ -49,20 +49,9 @@ def load_data(mode="sql"):
     return data
 
 
-def get_embedding(model, tokenizer, code):
-    input_ids = tokenizer(
-        code, padding="max_length", truncation=True, max_length=512, return_tensors="pt"
-    )["input_ids"]
-    with torch.no_grad():
-        context_embeddings = model(input_ids)[0].squeeze(0)
-        # print(context_embeddings.shape)
-    return context_embeddings
-
-
 class CodeBlockDataset(Dataset):
-    def __init__(self, model, tokenizer, dataset):
+    def __init__(self, tokenizer, dataset):
         self.samples = dataset
-        self.model = model
         self.tokenizer = tokenizer
         os.makedirs("data/embeddings", exist_ok=True)
 
@@ -71,8 +60,20 @@ class CodeBlockDataset(Dataset):
 
     def __getitem__(self, idx):
         code, label = self.samples[idx]
-        code_embedding = get_embedding(model, tokenizer, code)
-        return code_embedding, label
+        inputs = self.tokenizer(
+            code,
+            padding="max_length",
+            truncation=True,
+            max_length=256,
+            return_tensors="pt",
+        )
+        input_ids = inputs["input_ids"].squeeze(0)
+        attention_mask = inputs["attention_mask"].squeeze(0)
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "labels": torch.tensor(label, dtype=torch.long),
+        }
 
 
 def snapshot_data(data):
@@ -126,21 +127,27 @@ def extract_blocks_from_data(data, step=5, fulllength=200):
     return allblocks
 
 
-def get_data():
-    print("Loading data...")
+def prepare_dataloaders(tokenizer, mode="sql"):
+    print("Preparing Data Loaders...")
     train_set = pickle.load(open(f"data/{mode}_train_set.pkl", "rb"))
     val_set = pickle.load(open(f"data/{mode}_val_set.pkl", "rb"))
     test_set = pickle.load(open(f"data/{mode}_test_set.pkl", "rb"))
 
     # Create torch Dataset and DataLoader
-    train_dataset = CodeBlockDataset(model, tokenizer, train_set)
-    val_dataset = CodeBlockDataset(model, tokenizer, val_set)
-    test_dataset = CodeBlockDataset(model, tokenizer, test_set)
+    train_dataset = CodeBlockDataset(tokenizer, train_set)
+    val_dataset = CodeBlockDataset(tokenizer, val_set)
+    test_dataset = CodeBlockDataset(tokenizer, test_set)
 
     train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=4)
     val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False, num_workers=4)
     test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False, num_workers=4)
     return train_loader, val_loader, test_loader
+
+
+def load_model_and_tokenizer(path="microsoft/codebert-base"):
+    tokenizer = AutoTokenizer.from_pretrained(path)
+    model = AutoModel.from_pretrained(path)
+    return model, tokenizer
 
 
 if __name__ == "__main__":
@@ -183,21 +190,19 @@ if __name__ == "__main__":
     print(f"Total samples: {len(train_set) + len(val_set) + len(test_set)}")
     print(f"Train: {len(train_set)}, Val: {len(val_set)}, Test: {len(test_set)}")
 
-    tokenizer = AutoTokenizer.from_pretrained("microsoft/codebert-base")
-    model = AutoModel.from_pretrained("microsoft/codebert-base")
+    model, tokenizer = load_model_and_tokenizer()
 
     # Create torch Dataset and DataLoader
-    train_dataset = CodeBlockDataset(model, tokenizer, train_set)
-    val_dataset = CodeBlockDataset(model, tokenizer, val_set)
-    test_dataset = CodeBlockDataset(model, tokenizer, test_set)
+    train_dataset = CodeBlockDataset(tokenizer, train_set)
+    val_dataset = CodeBlockDataset(tokenizer, val_set)
+    test_dataset = CodeBlockDataset(tokenizer, test_set)
 
     train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=4)
     val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False, num_workers=4)
     test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False, num_workers=4)
 
     # Example usage:
-    for batch_x, batch_y in train_loader:
-        # batch_x: [batch_size, ...], batch_y: [batch_size]
-        print(batch_x[0])
-        print("label:", batch_y[0])
+    for batch in train_loader:
+        print(batch["input_ids"].shape)
+        print("label:", batch["labels"][0])
         break
