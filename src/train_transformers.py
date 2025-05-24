@@ -82,7 +82,7 @@ def evaluate_model(model, clf, data_loader, device, return_predictions=False):
                 output_hidden_states=True,
             )
             input_embeds = outputs.last_hidden_state
-            logits = clf(input_embeds, attention_mask)
+            logits = clf(input_embeds)
 
             loss = F.cross_entropy(logits, labels)
             total_loss += loss.item()
@@ -99,6 +99,9 @@ def evaluate_model(model, clf, data_loader, device, return_predictions=False):
 
 
 if __name__ == "__main__":
+    torch.manual_seed(42)
+    np.random.seed(42)
+
     model, tokenizer = load_model_and_tokenizer()
     train_loader, val_loader, test_loader = prepare_dataloaders(tokenizer, mode="sql")
 
@@ -126,7 +129,6 @@ if __name__ == "__main__":
     num_epochs = 5
 
     best_val_acc = 0.0
-    best_clf_state = None
 
     for epoch in range(num_epochs):
         total_loss = 0
@@ -166,7 +168,6 @@ if __name__ == "__main__":
         # Save best classifier weights
         if val_acc > best_val_acc:
             best_val_acc = val_acc
-            best_clf_state = clf.state_dict()
             best_checkpoint_path = save_checkpoint(
                 {k: v for k, v in model.state_dict().items() if v.requires_grad},
                 clf.state_dict(),
