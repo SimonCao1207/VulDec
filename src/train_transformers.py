@@ -79,27 +79,25 @@ if __name__ == "__main__":
 
     for epoch in range(num_epochs):
         total_loss = 0
-        with tqdm(train_loader, desc=f"Training Epoch {epoch + 1}") as pbar:
-            for batch in pbar:
-                input_ids = batch["input_ids"].to(device)
-                attention_mask = batch["attention_mask"].to(device)
-                labels = batch["labels"].to(device)
+        for batch in tqdm(train_loader, desc=f"Training Epoch {epoch + 1}"):
+            input_ids = batch["input_ids"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
+            labels = batch["labels"].to(device)
 
-                optimizer.zero_grad()
-                with torch.no_grad():
-                    outputs = model(
-                        input_ids=input_ids,
-                        attention_mask=attention_mask,
-                        output_hidden_states=True,
-                    )
-                    input_embeds = outputs.last_hidden_state
+            optimizer.zero_grad()
+            with torch.no_grad():
+                outputs = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    output_hidden_states=True,
+                )
+                input_embeds = outputs.last_hidden_state
 
-                logits = clf(input_embeds)
-                loss = F.cross_entropy(logits, labels)
-                loss.backward()
-                optimizer.step()
-                total_loss += loss.item()
-                pbar.set_postfix(loss=loss.item())
+            logits = clf(input_embeds)
+            loss = F.cross_entropy(logits, labels)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
 
         print(
             f"Epoch {epoch + 1}/{num_epochs}, Loss: {total_loss / len(train_loader):.4f}"
