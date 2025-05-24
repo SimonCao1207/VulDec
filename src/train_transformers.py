@@ -40,10 +40,13 @@ def freeze_model_parameters(model, n=2):
 
 
 def save_checkpoint(model_state, clf_state, optimizer_state, epoch, acc, loss):
+    import datetime
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     checkpoint_dir = os.path.join(os.path.dirname(__file__), "..", "checkpoints")
     os.makedirs(checkpoint_dir, exist_ok=True)
     checkpoint_path = os.path.join(
-        checkpoint_dir, f"best_model_acc_{int(100 * acc)}_epoch_{epoch}.pt"
+        checkpoint_dir, f"acc_{int(100 * acc)}_epoch_{epoch}_{timestamp}.pt"
     )
 
     torch.save(
@@ -71,7 +74,7 @@ def evaluate_model(model, clf, data_loader, device, return_predictions=False):
     total_loss = 0
 
     with torch.no_grad():
-        for batch in data_loader:
+        for batch in tqdm(data_loader):
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
@@ -182,7 +185,7 @@ if __name__ == "__main__":
 
     # Evaluate best model on test set
     if best_checkpoint_path:
-        checkpoint = torch.load(best_checkpoint_path)
+        checkpoint = torch.load(best_checkpoint_path, weights_only=False)
         clf.load_state_dict(checkpoint["clf_state_dict"])
         # Load unfrozen model parameters
         if "model_state_dict" in checkpoint:
